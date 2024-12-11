@@ -8,90 +8,93 @@ namespace Server;
 
 public class Guild
 {
-    private readonly int port;
-    private readonly UdpClient listener;
-    private readonly List<IPEndPoint> connectedUsers = [];
-    private readonly ILogger logger;
-    private IPEndPoint lastEndpoint;
+    private readonly int _port;
+    private readonly UdpClient _listener;
+    private readonly List<IPEndPoint> _connectedUsers = [];
+    private readonly ILogger _logger;
+    private IPEndPoint _lastEndPoint;
 
     public Guild(ILoggerFactory factory, string portAsString)
     {
-        logger = factory.CreateLogger<Guild>();
-        
+        _logger = factory.CreateLogger<Guild>();
+
         try
         {
-            port = int.Parse(portAsString);
+            _port = int.Parse(portAsString);
         }
         catch (Exception)
         {
-            AppLog.StartupCriticalError(logger, portAsString);
+            ServerLog.StartupCriticalError(_logger, portAsString);
             throw;
         }
-        
-        listener = new UdpClient(port);
-        lastEndpoint = new IPEndPoint(IPAddress.Any, port);
+
+        _listener = new UdpClient(_port);
+        _lastEndPoint = new IPEndPoint(IPAddress.Any, _port);
     }
-    
+
     public void Start()
     {
-        AppLog.Startup(logger, port);
-        try
+        ServerLog.Startup(_logger, _port);
+        while (true)
         {
-            LoopListening();
-        }
-        catch (Exception)
-        {
-            AppLog.RuntimeCriticalError(logger);
-            listener.Close();
-            throw;
+            try
+            {
+                ListenNext();
+            }
+            catch (Exception e)
+            {
+                if (e is SocketException)
+                {
+                    ServerLog.ClientWasDisconnectedWhileAccessing(_logger, _lastEndPoint.Address.ToString());
+                    continue;
+                }
+                ServerLog.RuntimeCriticalError(_logger, e.StackTrace);
+            }
         }
     }
 
-    private void LoopListening()
+    private void ListenNext()
     {
-        while (true)
-        {
-            var command = listener.Receive(ref lastEndpoint);
-            
-            var isSuccessfulProcessing = ProcessCommand(command);
+        var command = _listener.Receive(ref _lastEndPoint);
+        
+        var isSuccessfulProcessing = ProcessCommand(command);
 
-            if (IsConnected(lastEndpoint) || !isSuccessfulProcessing) continue;
-            connectedUsers.Add(lastEndpoint);
-            AppLog.UserConnected(logger, lastEndpoint.Address.ToString());
-        }
+        if (IsConnected(_lastEndPoint) || !isSuccessfulProcessing) return;
+        _connectedUsers.Add(_lastEndPoint);
+        ServerLog.UserConnected(_logger, _lastEndPoint.Address.ToString());
     }
 
     private bool ProcessCommand(byte[] command)
     {
         if (command.Length < 4)
         {
-            AppLog.IllegalCommandSize(logger, command.Length);
+            ServerLog.IllegalCommandSize(_logger, command.Length);
             return false;
         }
-        
+
         var commandName = BitConverter.ToInt32(command, 0);
         switch (commandName)
         {
             case (int)Command.Ping:
-                Send(lastEndpoint, "Pong!");
+                Send(_lastEndPoint, "Pong!");
                 return true;
             case (int)Command.VoiceData:
                 VoiceDataCommand(command);
                 return true;
             default:
-                AppLog.UnknownCommand(logger, commandName);
+                ServerLog.UnknownCommand(_logger, commandName);
                 return false;
         }
     }
 
     private void VoiceDataCommand(byte[] command)
     {
-        var endPoints = new IPEndPoint[connectedUsers.Count];
-        connectedUsers.CopyTo(endPoints);
+        var endPoints = new IPEndPoint[_connectedUsers.Count];
+        _connectedUsers.CopyTo(endPoints);
         var commandBody = command.Skip(4).ToArray();
         foreach (var endPoint in endPoints)
         {
-            if (endPoint.Port.Equals(lastEndpoint.Port)) continue;
+            if (endPoint.Port.Equals(_lastEndPoint.Port)) continue;
             Send(endPoint, commandBody);
         }
     }
@@ -101,11 +104,11 @@ public class Guild
         var bytes = Encoding.ASCII.GetBytes(data);
         Send(endPoint, bytes);
     }
-    
+
     private void Send(IPEndPoint endPoint, byte[] data)
     {
-        listener.Send(data, data.Length, endPoint);
+        _listener.Send(data, data.Length, endPoint);
     }
-    
-    private bool IsConnected(IPEndPoint endPoint) => connectedUsers.Any(user => user.Port.Equals(endPoint.Port));
+
+    private bool IsConnected(IPEndPoint endPoint) => _connectedUsers.Any(user => user.Port.Equals(endPoint.Port));
 }

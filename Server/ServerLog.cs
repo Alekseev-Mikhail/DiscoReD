@@ -2,7 +2,7 @@
 
 namespace Server;
 
-public static partial class AppLog
+public static partial class ServerLog
 {
     [LoggerMessage(LogLevel.Information, "Application started. Port: {port}")]
     public static partial void Startup(ILogger logger, int port);
@@ -16,9 +16,12 @@ public static partial class AppLog
     [LoggerMessage(LogLevel.Warning, "Unknown command was received: {commandName}")]
     public static partial void UnknownCommand(ILogger logger, int commandName);
     
+    [LoggerMessage(LogLevel.Warning, "Trying accessing the socket. Client was disconnected: {address}")]
+    public static partial void ClientWasDisconnectedWhileAccessing(ILogger logger, string address);
+    
     [LoggerMessage(LogLevel.Critical, "Application was stopped. Cannot parse port: {port}")]
     public static partial void StartupCriticalError(ILogger logger, string port);
     
-    [LoggerMessage(LogLevel.Critical, "Application was stopped. The unexpected error occured.")]
-    public static partial void RuntimeCriticalError(ILogger logger);
+    [LoggerMessage(LogLevel.Critical, "The unexpected error occured: {message}")]
+    public static partial void RuntimeCriticalError(ILogger logger, string? message);
 }
