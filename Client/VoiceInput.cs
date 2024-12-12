@@ -1,4 +1,5 @@
 ﻿using Client.Log;
+using Core;
 using Microsoft.Extensions.Logging;
 using NAudio.Wave;
 
@@ -31,6 +32,6 @@ public class VoiceInput
     
     private void OnDataAvailable(object sender, WaveInEventArgs waveInEventArgs)
     {
-        _clientNetwork.Send(BitConverter.GetBytes(1).Concat(waveInEventArgs.Buffer).ToArray());
+        _clientNetwork.Send(CommandName.VoiceData, waveInEventArgs.Buffer);
     }
 }

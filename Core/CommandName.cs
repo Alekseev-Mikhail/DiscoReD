@@ -1,6 +1,6 @@
 ﻿namespace Core;
 
-public enum Command
+public enum CommandName
 {
     Ping = 0,
     VoiceData = 1

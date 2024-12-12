@@ -10,7 +10,7 @@ public class Guild
 {
     private readonly int _port;
     private readonly UdpClient _listener;
-    private readonly List<IPEndPoint> _connectedUsers = [];
+    private readonly List<IPEndPoint> _connectedClients = [];
     private readonly ILogger _logger;
     private IPEndPoint _lastEndPoint;
 
@@ -34,7 +34,7 @@ public class Guild
 
     public void Start()
     {
-        ServerLog.Startup(_logger, _port);
+        ServerLog.Start(_logger, _port);
         while (true)
         {
             try
@@ -45,57 +45,58 @@ public class Guild
             {
                 if (e is SocketException)
                 {
-                    ServerLog.ClientWasDisconnectedWhileAccessing(_logger, _lastEndPoint.Address.ToString());
+                    ServerLog.ClientIsNotAccessable(
+                        _logger,
+                        _lastEndPoint.Address.ToString(),
+                        _connectedClients.Count
+                    );
                     continue;
                 }
-                ServerLog.RuntimeCriticalError(_logger, e.StackTrace);
+
+                ServerLog.RuntimeWarning(_logger, e.Message, e.StackTrace);
             }
         }
     }
 
     private void ListenNext()
     {
-        var command = _listener.Receive(ref _lastEndPoint);
+        var rawCommand = _listener.Receive(ref _lastEndPoint);
+        var command = Command.Parse(rawCommand);
         
-        var isSuccessfulProcessing = ProcessCommand(command);
+        ProcessCommand(command);
+    }
 
-        if (IsConnected(_lastEndPoint) || !isSuccessfulProcessing) return;
-        _connectedUsers.Add(_lastEndPoint);
+    private void ProcessCommand(Command command)
+    {
+        switch (command.Name)
+        {
+            case CommandName.Ping:
+                PingCommand();
+                break;
+            case CommandName.VoiceData:
+                VoiceDataCommand(command);
+                break;
+            default:
+                ServerLog.UnknownCommand(_logger, command.Name.ToString());
+                break;
+        }
+    }
+
+    private void PingCommand()
+    {
+        _connectedClients.Add(_lastEndPoint);
+        Send(_lastEndPoint, _connectedClients.Count - 1);
         ServerLog.UserConnected(_logger, _lastEndPoint.Address.ToString());
     }
-
-    private bool ProcessCommand(byte[] command)
+    
+    private void VoiceDataCommand(Command command)
     {
-        if (command.Length < 4)
-        {
-            ServerLog.IllegalCommandSize(_logger, command.Length);
-            return false;
-        }
-
-        var commandName = BitConverter.ToInt32(command, 0);
-        switch (commandName)
-        {
-            case (int)Command.Ping:
-                Send(_lastEndPoint, "Pong!");
-                return true;
-            case (int)Command.VoiceData:
-                VoiceDataCommand(command);
-                return true;
-            default:
-                ServerLog.UnknownCommand(_logger, commandName);
-                return false;
-        }
-    }
-
-    private void VoiceDataCommand(byte[] command)
-    {
-        var endPoints = new IPEndPoint[_connectedUsers.Count];
-        _connectedUsers.CopyTo(endPoints);
-        var commandBody = command.Skip(4).ToArray();
+        var endPoints = new IPEndPoint[_connectedClients.Count];
+        _connectedClients.CopyTo(endPoints);
         foreach (var endPoint in endPoints)
         {
             if (endPoint.Port.Equals(_lastEndPoint.Port)) continue;
-            Send(endPoint, commandBody);
+            Send(endPoint, command.Body);
         }
     }
 
@@ -104,11 +105,15 @@ public class Guild
         var bytes = Encoding.ASCII.GetBytes(data);
         Send(endPoint, bytes);
     }
+    
+    private void Send(IPEndPoint endPoint, int data)
+    {
+        var bytes = BitConverter.GetBytes(data);
+        Send(endPoint, bytes);
+    }
 
     private void Send(IPEndPoint endPoint, byte[] data)
     {
         _listener.Send(data, data.Length, endPoint);
     }
-
-    private bool IsConnected(IPEndPoint endPoint) => _connectedUsers.Any(user => user.Port.Equals(endPoint.Port));
 }
